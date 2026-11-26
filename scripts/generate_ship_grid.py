@@ -7,7 +7,6 @@ USERNAME = os.environ.get("GITHUB_USERNAME", "AVSantosDev")
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
 OUT_PATH = Path("dist/github-contribution-grid-snake-dark.svg")
 
-# Cores dark padrão do GitHub
 EMPTY_COLOR = "#161b22"
 BG_COLOR = "#0d1117"
 SHIP_COLOR = "#38bdf8"
@@ -83,27 +82,32 @@ def fetch_contribution_grid(username: str, token: str) -> list[list[int]]:
     return grid
 
 
-def pick_targets(grid: list[list[int]], max_targets: int = 45) -> list[tuple[int, int, int]]:
-    """Escolhe alvos com contribuição distribuídos da esquerda até a direita."""
+def build_two_way_targets(grid: list[list[int]]) -> list[tuple[int, int, int]]:
+    """
+    Monta a fila de alvos em duas passadas:
+    - Ida (esquerda -> direita): 1 alvo por coluna com contribuição
+    - Volta (direita -> esquerda): os blocos restantes que sobraram
+    """
     rows = len(grid)
     cols = len(grid[0]) if rows else 53
 
-    candidates: list[tuple[int, int, int]] = []
+    pass1: list[tuple[int, int, int]] = []
+    chosen_coords: set[tuple[int, int]] = set()
+
     for c in range(cols):
         col_hits = [(r, c, grid[r][c]) for r in range(rows) if grid[r][c] > 0]
         if col_hits:
-            # Pega um alvo por coluna para varrer o ano inteiro sem travar no meio
-            candidates.append(col_hits[c % len(col_hits)])
+            r, c_hit, lvl = col_hits[c % len(col_hits)]
+            pass1.append((r, c_hit, lvl))
+            chosen_coords.add((r, c_hit))
 
-    if not candidates:
-        return []
+    remaining: list[tuple[int, int, int]] = []
+    for c in range(cols - 1, -1, -1):
+        for r in range(rows - 1, -1, -1):
+            if grid[r][c] > 0 and (r, c) not in chosen_coords:
+                remaining.append((r, c, grid[r][c]))
 
-    if len(candidates) <= max_targets:
-        return candidates
-
-    step = (len(candidates) - 1) / (max_targets - 1)
-    idxs = sorted({round(i * step) for i in range(max_targets)})
-    return [candidates[i] for i in idxs]
+    return pass1 + remaining[:45]
 
 
 def build_svg(grid: list[list[int]]) -> str:
@@ -122,22 +126,18 @@ def build_svg(grid: list[list[int]]) -> str:
     width = pad_x * 2 + grid_w
     height = pad_y * 2 + grid_h + ship_lane
 
-    targets = pick_targets(grid, max_targets=45)
-    n = len(targets)
+    targets = build_two_way_targets(grid)
 
     ship_y = pad_y + grid_h + 12
     first_x = pad_x + cell / 2 - 10
-    last_x = pad_x + (cols - 1) * step + cell / 2 - 10
 
-    # Desenha TODAS as células do grid (vazias e preenchidas) de forma uniforme
-    all_cells_svg = []
-    hit_times: dict[tuple[int, int], float] = {}
-
-    dt_move = 0.14
-    dt_shot = 0.08
+    dt_move = 0.12
+    dt_shot = 0.07
     current_t = 0.15
 
     events = []
+    hit_times: dict[tuple[int, int], float] = {}
+
     for r, c, _ in targets:
         bx = pad_x + c * step
         by = pad_y + r * step
@@ -149,32 +149,38 @@ def build_svg(grid: list[list[int]]) -> str:
         t_hit = round(t_arrive + dt_shot, 3)
         events.append((r, c, bx, by, cx, cy, ship_x, t_arrive, t_hit))
 
-        key = (r, c)
-        if key not in hit_times:
-            hit_times[key] = t_hit
+        if (r, c) not in hit_times:
+            hit_times[(r, c)] = t_hit
 
-        current_t = t_hit + 0.03
+        current_t = t_hit + 0.02
 
-    total_dur = round(max(1.0, current_t + 0.4), 3)
+    # Pausa curta no final antes de resetar tudo para o próximo loop
+    reset_pause = 0.8
+    total_dur = round(max(1.5, current_t + reset_pause), 3)
+    t_reset = round(max(0.1, total_dur - 0.15), 3)
 
+    all_cells_svg = []
     for r in range(rows):
         for c in range(cols):
             level = grid[r][c]
             bx = pad_x + c * step
             by = pad_y + r * step
-            cx = bx + cell / 2
-            cy = by + cell / 2
             color = LEVEL_COLORS.get(level, EMPTY_COLOR)
 
             if level > 0 and (r, c) in hit_times:
                 t_hit = hit_times[(r, c)]
-                t_after = min(total_dur, round(t_hit + 0.04, 3))
-                # Some quando é atingido e fica invisível até o fim (repeatCount="1", fill="freeze")
+                t_after = min(t_reset - 0.02, round(t_hit + 0.03, 3))
+
+                kt1 = max(0.001, min(0.85, t_hit / total_dur))
+                kt2 = max(kt1 + 0.002, min(0.88, t_after / total_dur))
+                kt3 = max(kt2 + 0.002, min(0.96, t_reset / total_dur))
+
+                # Some ao ser atingido e reaparece no fim para o próximo loop
                 all_cells_svg.append(
                     f'<rect x="{bx}" y="{by}" width="{cell}" height="{cell}" rx="2" fill="{color}">'
-                    f'<animate attributeName="opacity" values="1;1;0;0" '
-                    f'keyTimes="0;{t_hit/total_dur:.4f};{t_after/total_dur:.4f};1" '
-                    f'dur="{total_dur}s" repeatCount="1" fill="freeze" />'
+                    f'<animate attributeName="opacity" values="1;1;0;0;1" '
+                    f'keyTimes="0;{kt1:.4f};{kt2:.4f};{kt3:.4f};1" '
+                    f'dur="{total_dur}s" repeatCount="indefinite" />'
                     f'</rect>'
                 )
             else:
@@ -182,16 +188,15 @@ def build_svg(grid: list[list[int]]) -> str:
                     f'<rect x="{bx}" y="{by}" width="{cell}" height="{cell}" rx="2" fill="{color}" />'
                 )
 
-    # Movimento da nave até o fim da direita e parada lá
+    # Nave faz ida + volta e retorna ao início no fim do ciclo
     ship_kt = ["0.0000"]
     ship_val = [f"{first_x:.1f}"]
     for _, _, _, _, _, _, ship_x, t_arrive, _ in events:
-        ship_kt.append(f"{min(0.98, t_arrive / total_dur):.4f}")
+        ship_kt.append(f"{min(0.94, t_arrive / total_dur):.4f}")
         ship_val.append(f"{ship_x:.1f}")
-    ship_kt.append("1.0000")
-    ship_val.append(f"{last_x:.1f}")
+    ship_kt.extend([f"{min(0.98, t_reset / total_dur):.4f}", "1.0000"])
+    ship_val.extend([f"{first_x:.1f}", f"{first_x:.1f}"])
 
-    # Tiros individuais (cada um aparece só durante dt_shot e some por completo)
     shots_svg = []
     for _, _, _, _, cx, cy, _, t_arrive, t_hit in events:
         shot_x = cx - 1.5
@@ -200,7 +205,7 @@ def build_svg(grid: list[list[int]]) -> str:
             f'<rect x="{shot_x:.1f}" y="{cy:.1f}" width="3" height="8" rx="1.5" fill="{LASER_COLOR}" opacity="0">'
             f'<set attributeName="opacity" to="1" begin="{t_arrive}s" dur="{dt_shot}s" fill="remove" />'
             f'<animate attributeName="y" from="{ship_y - 3:.1f}" to="{cy:.1f}" '
-            f'dur="{dt_shot}s" begin="{t_arrive}s" repeatCount="1" fill="freeze" />'
+            f'dur="{dt_shot}s" begin="{t_arrive}s" repeatCount="indefinite" />'
             f'<set attributeName="opacity" to="0" begin="{t_end_shot}s" fill="freeze" />'
             f'</rect>'
         )
@@ -209,7 +214,7 @@ def build_svg(grid: list[list[int]]) -> str:
         f'<g transform="translate(0 {ship_y:.1f})">'
         f'<animateTransform attributeName="transform" additive="sum" type="translate" '
         f'values="{";".join(ship_val)}" keyTimes="{";".join(ship_kt)}" '
-        f'dur="{total_dur}s" repeatCount="1" fill="freeze" />'
+        f'dur="{total_dur}s" repeatCount="indefinite" />'
         f'<polygon points="10,0 18,10 13,10 13,12 7,12 7,10 2,10" fill="{SHIP_COLOR}" />'
         f'<rect x="9" y="3" width="2" height="4" fill="#e0f2fe" />'
         f'</g>'
