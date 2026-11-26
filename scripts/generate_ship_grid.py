@@ -82,11 +82,33 @@ def fetch_contribution_grid(username: str, token: str) -> list[list[int]]:
     return grid
 
 
+def strictly_increasing_times(raw_times: list[float]) -> list[str]:
+    """Garante que keyTimes comecem em 0.0, terminem em 1.0 e sejam estritamente crescentes."""
+    if not raw_times:
+        return ["0.0000", "1.0000"]
+
+    eps = 0.0002
+    cleaned: list[float] = [0.0]
+    for t in raw_times[1:-1]:
+        clamped = max(cleaned[-1] + eps, min(1.0 - eps * 2, round(t, 4)))
+        cleaned.append(clamped)
+
+    cleaned.append(max(cleaned[-1] + eps, 1.0))
+    # Se ultrapassou 1.0 por excesso de pontos, normaliza proporcionalmente
+    if cleaned[-1] > 1.0:
+        max_v = cleaned[-1]
+        cleaned = [round(v / max_v, 4) for v in cleaned]
+        cleaned[0] = 0.0
+        cleaned[-1] = 1.0
+
+    return [f"{v:.4f}" for v in cleaned]
+
+
 def build_two_way_targets(grid: list[list[int]]) -> list[tuple[int, int, int]]:
     """
     Monta a fila de alvos em duas passadas:
     - Ida (esquerda -> direita): 1 alvo por coluna com contribuição
-    - Volta (direita -> esquerda): os blocos restantes que sobraram
+    - Volta (direita -> esquerda): blocos restantes que ficaram para trás
     """
     rows = len(grid)
     cols = len(grid[0]) if rows else 53
@@ -154,10 +176,9 @@ def build_svg(grid: list[list[int]]) -> str:
 
         current_t = t_hit + 0.02
 
-    # Pausa curta no final antes de resetar tudo para o próximo loop
-    reset_pause = 0.8
+    reset_pause = 0.9
     total_dur = round(max(1.5, current_t + reset_pause), 3)
-    t_reset = round(max(0.1, total_dur - 0.15), 3)
+    t_reset = round(max(0.2, total_dur - 0.15), 3)
 
     all_cells_svg = []
     for r in range(rows):
@@ -169,17 +190,18 @@ def build_svg(grid: list[list[int]]) -> str:
 
             if level > 0 and (r, c) in hit_times:
                 t_hit = hit_times[(r, c)]
-                t_after = min(t_reset - 0.02, round(t_hit + 0.03, 3))
-
-                kt1 = max(0.001, min(0.85, t_hit / total_dur))
-                kt2 = max(kt1 + 0.002, min(0.88, t_after / total_dur))
-                kt3 = max(kt2 + 0.002, min(0.96, t_reset / total_dur))
-
-                # Some ao ser atingido e reaparece no fim para o próximo loop
+                t_after = round(t_hit + 0.03, 3)
+                kt_list = strictly_increasing_times([
+                    0.0,
+                    t_hit / total_dur,
+                    t_after / total_dur,
+                    t_reset / total_dur,
+                    1.0,
+                ])
                 all_cells_svg.append(
                     f'<rect x="{bx}" y="{by}" width="{cell}" height="{cell}" rx="2" fill="{color}">'
                     f'<animate attributeName="opacity" values="1;1;0;0;1" '
-                    f'keyTimes="0;{kt1:.4f};{kt2:.4f};{kt3:.4f};1" '
+                    f'keyTimes="{";".join(kt_list)}" '
                     f'dur="{total_dur}s" repeatCount="indefinite" />'
                     f'</rect>'
                 )
@@ -188,14 +210,15 @@ def build_svg(grid: list[list[int]]) -> str:
                     f'<rect x="{bx}" y="{by}" width="{cell}" height="{cell}" rx="2" fill="{color}" />'
                 )
 
-    # Nave faz ida + volta e retorna ao início no fim do ciclo
-    ship_kt = ["0.0000"]
-    ship_val = [f"{first_x:.1f}"]
-    for _, _, _, _, _, _, ship_x, t_arrive, _ in events:
-        ship_kt.append(f"{min(0.94, t_arrive / total_dur):.4f}")
-        ship_val.append(f"{ship_x:.1f}")
-    ship_kt.extend([f"{min(0.98, t_reset / total_dur):.4f}", "1.0000"])
-    ship_val.extend([f"{first_x:.1f}", f"{first_x:.1f}"])
+    raw_ship_times = [0.0] + [t_arrive / total_dur for _, _, _, _, _, _, _, t_arrive, _ in events] + [
+        t_reset / total_dur,
+        1.0,
+    ]
+    ship_kt = strictly_increasing_times(raw_ship_times)
+    ship_val = [f"{first_x:.1f}"] + [f"{ship_x:.1f}" for _, _, _, _, _, _, ship_x, _, _ in events] + [
+        f"{first_x:.1f}",
+        f"{first_x:.1f}",
+    ]
 
     shots_svg = []
     for _, _, _, _, cx, cy, _, t_arrive, t_hit in events:
