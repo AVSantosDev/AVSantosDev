@@ -65,7 +65,6 @@ def fetch_contribution_grid(username: str, token: str) -> list[list[int]]:
         except Exception as exc:
             print(f"Aviso: falha na API GraphQL ({exc}), usando grade de exemplo.")
 
-    # Fallback caso rode localmente sem token
     cols = 53
     grid = [[0 for _ in range(cols)] for _ in range(7)]
     for c in range(cols):
@@ -77,24 +76,21 @@ def fetch_contribution_grid(username: str, token: str) -> list[list[int]]:
     return grid
 
 
-def pick_targets_across_grid(grid: list[list[int]], max_targets: int = 55) -> list[tuple[int, int, int]]:
-    """Seleciona alvos com contribuições distribuídos da esquerda até a última coluna da direita."""
+def pick_targets_across_grid(grid: list[list[int]], max_targets: int = 53) -> list[tuple[int, int, int]]:
+    """Seleciona alvos com contribuições distribuídos da esquerda até à última coluna da direita."""
     rows = len(grid)
     cols = len(grid[0]) if rows else 53
 
-    # Coleta o melhor alvo por coluna (ou vários ao longo de todas as colunas)
     per_col: list[tuple[int, int, int]] = []
     for c in range(cols):
         col_cells = [(r, c, grid[r][c]) for r in range(rows) if grid[r][c] > 0]
         if col_cells:
-            # Escolhe uma célula com contribuição nessa coluna
             chosen = col_cells[c % len(col_cells)]
             per_col.append(chosen)
 
     if len(per_col) <= max_targets:
         return per_col
 
-    # Amostragem uniforme incluindo sempre o primeiro e o último alvo da direita
     step = (len(per_col) - 1) / (max_targets - 1)
     indices = sorted({round(i * step) for i in range(max_targets)})
     return [per_col[i] for i in indices]
@@ -119,46 +115,38 @@ def build_svg(grid: list[list[int]]) -> str:
     targets = pick_targets_across_grid(grid, max_targets=53)
     n = max(1, len(targets))
 
-    # Cada passo tem: movimento/alinhamento + disparo + destruição
-    step_dur = 0.22
-    travel_dur = 0.09
+    step_dur = 0.24
+    travel_dur = 0.10
     shot_dur = 0.08
-    # Tempo total inclui ida até o fim e retorno suave ao início
-    total_dur = round(n * step_dur + 1.4, 2)
+    total_dur = round(n * step_dur + 0.6, 2)
 
-    start_x = pad_x + (cols - 1) * step + cell / 2 - 10
     first_x = pad_x + cell / 2 - 10
+    last_x = pad_x + (cols - 1) * step + cell / 2 - 10
     ship_y = pad_y + grid_h + 12
 
-    target_map: dict[tuple[int, int], dict] = {}
+    target_map: dict[tuple[int, int], float] = {}
     shots_svg = []
     hit_flashes_svg = []
 
     ship_times = ["0.0000"]
     ship_xs = [f"{first_x:.1f}"]
 
-    for idx, (r, c, level) in enumerate(targets):
+    for idx, (r, c, _) in enumerate(targets):
         bx = pad_x + c * step
         by = pad_y + r * step
         target_center_x = bx + cell / 2 - 10
 
         t_arrive = idx * step_dur + travel_dur
-        t_hit = min(total_dur - 0.3, t_arrive + shot_dur)
-        t_respawn = min(total_dur - 0.15, t_hit + 1.6)
+        t_hit = min(total_dur - 0.1, t_arrive + shot_dur)
 
-        ship_times.append(f"{min(0.96, t_arrive / total_dur):.4f}")
+        ship_times.append(f"{min(0.98, t_arrive / total_dur):.4f}")
         ship_xs.append(f"{target_center_x:.1f}")
 
-        # Guarda dados de destruição caso a mesma célula apareça mais de uma vez
         key = (r, c)
         if key not in target_map:
-            target_map[key] = {
-                "level": level,
-                "t_hit": t_hit,
-                "t_respawn": t_respawn,
-            }
+            target_map[key] = t_hit
 
-        # Projétil parte da nave já alinhada e sobe até ao bloco
+        # Disparo único (repeatCount="1", fill="freeze") que some após o impacto
         shot_x = bx + cell / 2 - 1.5
         shot_y_start = ship_y - 4
         shot_y_end = by + cell / 2
@@ -166,29 +154,27 @@ def build_svg(grid: list[list[int]]) -> str:
         shots_svg.append(
             f'<rect x="{shot_x:.1f}" y="{shot_y_end:.1f}" width="3" height="9" rx="1.5" fill="#38bdf8" opacity="0">'
             f'<animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.85;1" '
-            f'dur="{shot_dur:.2f}s" begin="{t_arrive:.2f}s" repeatCount="indefinite" />'
+            f'dur="{shot_dur:.2f}s" begin="{t_arrive:.2f}s" repeatCount="1" fill="freeze" />'
             f'<animate attributeName="y" from="{shot_y_start:.1f}" to="{shot_y_end:.1f}" '
-            f'dur="{shot_dur:.2f}s" begin="{t_arrive:.2f}s" repeatCount="indefinite" />'
+            f'dur="{shot_dur:.2f}s" begin="{t_arrive:.2f}s" repeatCount="1" fill="freeze" />'
             f'</rect>'
         )
 
-        # Flash rápido no ponto de impacto
+        # Flash único no impacto
         flash_cx = bx + cell / 2
         flash_cy = by + cell / 2
         hit_flashes_svg.append(
             f'<circle cx="{flash_cx:.1f}" cy="{flash_cy:.1f}" r="2" fill="#e0f2fe" opacity="0">'
             f'<animate attributeName="opacity" values="0;0.95;0" keyTimes="0;0.3;1" '
-            f'dur="0.16s" begin="{t_hit:.2f}s" repeatCount="indefinite" />'
+            f'dur="0.16s" begin="{t_hit:.2f}s" repeatCount="1" fill="freeze" />'
             f'<animate attributeName="r" values="2;7;1" keyTimes="0;0.5;1" '
-            f'dur="0.16s" begin="{t_hit:.2f}s" repeatCount="indefinite" />'
+            f'dur="0.16s" begin="{t_hit:.2f}s" repeatCount="1" fill="freeze" />'
             f'</circle>'
         )
 
-    # Garante que a nave chega até a última coluna à direita e depois regressa ao início
-    last_bx = pad_x + (cols - 1) * step
-    last_ship_x = last_bx + cell / 2 - 10
-    ship_times.extend(["0.9600", "1.0000"])
-    ship_xs.extend([f"{last_ship_x:.1f}", f"{first_x:.1f}"])
+    # Nave vai até ao fim da direita e fica parada lá no final
+    ship_times.append("1.0000")
+    ship_xs.append(f"{last_x:.1f}")
 
     blocks_svg = []
     for r in range(rows):
@@ -203,26 +189,23 @@ def build_svg(grid: list[list[int]]) -> str:
             cy = by + cell / 2
             color = LEVEL_COLORS.get(level, "#26a641")
 
-            info = target_map.get((r, c))
-            if info:
-                t_hit = info["t_hit"]
-                t_respawn = info["t_respawn"]
-                kt1 = max(0.001, min(0.92, t_hit / total_dur))
-                kt2 = max(kt1 + 0.002, min(0.94, (t_hit + 0.05) / total_dur))
-                kt3 = max(kt2 + 0.002, min(0.98, t_respawn / total_dur))
+            if (r, c) in target_map:
+                t_hit = target_map[(r, c)]
+                kt1 = max(0.001, min(0.95, t_hit / total_dur))
+                kt2 = max(kt1 + 0.002, min(0.99, (t_hit + 0.05) / total_dur))
 
-                key_times = f"0;{kt1:.4f};{kt2:.4f};{kt3:.4f};1"
-                scale_vals = "1;1;0.05;0.05;1"
-                op_vals = "1;1;0;0;1"
+                key_times = f"0;{kt1:.4f};{kt2:.4f};1"
+                scale_vals = "1;1;0.01;0.01"
+                op_vals = "1;1;0;0"
 
                 blocks_svg.append(
                     f'<g transform="translate({cx:.1f} {cy:.1f})">'
                     f'<rect x="{-cell/2:.1f}" y="{-cell/2:.1f}" width="{cell}" height="{cell}" rx="2" fill="{color}">'
                     f'<animate attributeName="opacity" values="{op_vals}" keyTimes="{key_times}" '
-                    f'dur="{total_dur:.2f}s" repeatCount="indefinite" />'
+                    f'dur="{total_dur:.2f}s" repeatCount="1" fill="freeze" />'
                     f'</rect>'
                     f'<animateTransform attributeName="transform" additive="sum" type="scale" '
-                    f'values="{scale_vals}" keyTimes="{key_times}" dur="{total_dur:.2f}s" repeatCount="indefinite" />'
+                    f'values="{scale_vals}" keyTimes="{key_times}" dur="{total_dur:.2f}s" repeatCount="1" fill="freeze" />'
                     f'</g>'
                 )
             else:
@@ -241,7 +224,7 @@ def build_svg(grid: list[list[int]]) -> str:
         f'<g transform="translate(0 {ship_y:.1f})">'
         f'<animateTransform attributeName="transform" additive="sum" type="translate" '
         f'values="{";".join(ship_xs)}" keyTimes="{";".join(ship_times)}" '
-        f'dur="{total_dur:.2f}s" repeatCount="indefinite" />'
+        f'dur="{total_dur:.2f}s" repeatCount="1" fill="freeze" />'
         f'<polygon points="10,0 18,10 13,10 13,12 7,12 7,10 2,10" fill="#38bdf8" />'
         f'<rect x="9" y="3" width="2" height="4" fill="#e0f2fe" />'
         f'</g>'
