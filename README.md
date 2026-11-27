@@ -1,5 +1,5 @@
 <!-- <div align="center">
-  <!-- Animação da Cobrinha (Snake) -->
+  <!-- Animação da Cobrinha (Snake) 
   <!--<img src="https://raw.githubusercontent.com/AVSantosDev/AVSantosDev/output/github-contribution-grid-snake-dark.svg?v=azul3" alt="Animação da Cobrinha" />
 <!-- </div> --> -->
 <div align="center">
