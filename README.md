@@ -1,6 +1,6 @@
 <!-- <div align="center">
   <!-- Animação da Cobrinha (Snake) -->
-  <!--<img src="https://raw.githubusercontent.com/AVSantosDev/AVSantosDev/output/github-contribution-grid-snake-dark.svg?v=azul3" alt="Animação da Cobrinha" />-->
+  <!--<img src="https://raw.githubusercontent.com/AVSantosDev/AVSantosDev/output/github-contribution-grid-snake-dark.svg?v=azul3" alt="Animação da Cobrinha" />
 <!-- </div> --> -->
 <div align="center">
   <img src="https://raw.githubusercontent.com/AVSantosDev/AVSantosDev/output/github-contribution-grid-snake-dark.svg?v=nav2026" alt="Animação da Nave" />
