@@ -1,8 +1,10 @@
-<div align="center">
+<!-- <div align="center">
   <!-- Animação da Cobrinha (Snake) -->
-  <img src="https://raw.githubusercontent.com/AVSantosDev/AVSantosDev/output/github-contribution-grid-snake-dark.svg?v=azul3" alt="Animação da Cobrinha" />
+  <!--<img src="https://raw.githubusercontent.com/AVSantosDev/AVSantosDev/output/github-contribution-grid-snake-dark.svg?v=azul3" alt="Animação da Cobrinha" />-->
+<!-- </div> --> -->
+<div align="center">
+  <img src="https://raw.githubusercontent.com/AVSantosDev/AVSantosDev/output/github-contribution-grid-snake-dark.svg?v=nav2026" alt="Animação da Nave" />
 </div>
-
 # Olá, eu sou o André 👋
 
 Desenvolvedor focado principalmente em **Django** e **Flutter**, com **3 projetos em produção** e experiência na publicação de aplicativos na **App Store (iOS)** e **Google Play (Android)**.
